@@ -1,11 +1,6 @@
 <Project>
-  <Import Project="../Directory.Build.props" />
+  <Import Project="..\Directory.Build.props" />
   <Import Project="Build.props" />
-
-  <Target Name="TagCiBuilds" Condition=" '$(CI)' == 'true' AND '$(BUILD_REASON)' != 'PullRequest' ">
-    <Message Importance="high" Text="##vso[build.addbuildtag]daily-build" Condition=" '$(IsFinalBuild)' != 'true' " />
-    <Message Importance="high" Text="##vso[build.addbuildtag]release-candidate" Condition=" '$(IsFinalBuild)' == 'true' " />
-  </Target>
 
   <Target Name="GenerateProjectList">
     <MSBuild Projects="@(ProjectToBuild)"
@@ -50,11 +45,4 @@
           Command="echo '$(ProjectListContent.Replace('\t','\\t'))' > $(ProjectListFile)" />
   </Target>
 
-  <Target Name="GenerateReferenceSources">
-      <MSBuild
-          Projects="@(ProjectToBuild)"
-          Targets="GenerateReferenceSource"
-          SkipNonexistentTargets="true"
-          SkipNonexistentProjects="true" />
-  </Target>
 </Project>

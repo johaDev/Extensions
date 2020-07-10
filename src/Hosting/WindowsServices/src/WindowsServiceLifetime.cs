@@ -1,23 +1,43 @@
-// Copyright (c) .NET Foundation. All rights reserved.
-// Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
+// Licensed to the .NET Foundation under one or more agreements.
+// The .NET Foundation licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for more information.
 
 using System;
 using System.ServiceProcess;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Microsoft.Extensions.Hosting.WindowsServices
 {
     public class WindowsServiceLifetime : ServiceBase, IHostLifetime
     {
-        private TaskCompletionSource<object> _delayStart = new TaskCompletionSource<object>();
+        private readonly TaskCompletionSource<object> _delayStart = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly ManualResetEventSlim _delayStop = new ManualResetEventSlim();
+        private readonly HostOptions _hostOptions;
 
-        public WindowsServiceLifetime(IHostEnvironment environment, IHostApplicationLifetime applicationLifetime, ILoggerFactory loggerFactory)
+        public WindowsServiceLifetime(IHostEnvironment environment, IHostApplicationLifetime applicationLifetime, ILoggerFactory loggerFactory, IOptions<HostOptions> optionsAccessor)
+            : this(environment, applicationLifetime, loggerFactory, optionsAccessor, Options.Options.Create(new WindowsServiceLifetimeOptions()))
+        {
+        }
+
+        public WindowsServiceLifetime(IHostEnvironment environment, IHostApplicationLifetime applicationLifetime, ILoggerFactory loggerFactory, IOptions<HostOptions> optionsAccessor, IOptions<WindowsServiceLifetimeOptions> windowsServiceOptionsAccessor)
         {
             Environment = environment ?? throw new ArgumentNullException(nameof(environment));
             ApplicationLifetime = applicationLifetime ?? throw new ArgumentNullException(nameof(applicationLifetime));
             Logger = loggerFactory.CreateLogger("Microsoft.Hosting.Lifetime");
+            if (optionsAccessor == null)
+            {
+                throw new ArgumentNullException(nameof(optionsAccessor));
+            }
+            if (windowsServiceOptionsAccessor == null)
+            {
+                throw new ArgumentNullException(nameof(windowsServiceOptionsAccessor));
+            }
+            _hostOptions = optionsAccessor.Value;
+            ServiceName = windowsServiceOptionsAccessor.Value.ServiceName;
+            CanShutdown = true;
         }
 
         private IHostApplicationLifetime ApplicationLifetime { get; }
@@ -36,8 +56,15 @@ namespace Microsoft.Extensions.Hosting.WindowsServices
             {
                 Logger.LogInformation("Application is shutting down...");
             });
+            ApplicationLifetime.ApplicationStopped.Register(() =>
+            {
+                _delayStop.Set();
+            });
 
-            new Thread(Run).Start(); // Otherwise this would block and prevent IHost.StartAsync from finishing.
+            Thread thread = new Thread(Run);
+            thread.IsBackground = true;
+            thread.Start(); // Otherwise this would block and prevent IHost.StartAsync from finishing.
+
             return _delayStart.Task;
         }
 
@@ -56,7 +83,9 @@ namespace Microsoft.Extensions.Hosting.WindowsServices
 
         public Task StopAsync(CancellationToken cancellationToken)
         {
-            Stop();
+            // Avoid deadlock where host waits for StopAsync before firing ApplicationStopped,
+            // and Stop waits for ApplicationStopped.
+            Task.Run(Stop);
             return Task.CompletedTask;
         }
 
@@ -72,7 +101,27 @@ namespace Microsoft.Extensions.Hosting.WindowsServices
         protected override void OnStop()
         {
             ApplicationLifetime.StopApplication();
+            // Wait for the host to shutdown before marking service as stopped.
+            _delayStop.Wait(_hostOptions.ShutdownTimeout);
             base.OnStop();
+        }
+
+        protected override void OnShutdown()
+        {
+            ApplicationLifetime.StopApplication();
+            // Wait for the host to shutdown before marking service as stopped.
+            _delayStop.Wait(_hostOptions.ShutdownTimeout);
+            base.OnShutdown();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _delayStop.Set();
+            }
+
+            base.Dispose(disposing);
         }
     }
 }

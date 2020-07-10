@@ -6,6 +6,7 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <PackageTags>cache;distributedcache;sqlserver</PackageTags>
+    <IsPackable>true</IsPackable>
     <IsShipping>true</IsShipping>
   </PropertyGroup>
 
@@ -16,7 +17,8 @@
   <ItemGroup>
     <Reference Include="Microsoft.Extensions.Caching.Abstractions" />
     <Reference Include="Microsoft.Extensions.Options" />
-    <Reference Include="System.Data.SqlClient" />
+    <Reference Include="Microsoft.Data.SqlClient" />
+    <Reference Include="Microsoft.CodeAnalysis.FxCopAnalyzers" PrivateAssets="All" />
   </ItemGroup>
 
 </Project>

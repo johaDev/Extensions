@@ -1,5 +1,6 @@
-﻿// Copyright (c) .NET Foundation. All rights reserved.
-// Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
+﻿// Licensed to the .NET Foundation under one or more agreements.
+// The .NET Foundation licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Globalization;
@@ -8,6 +9,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Security;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Security.Authentication;
 using System.Text;
 using System.Threading.Tasks;
@@ -24,17 +26,20 @@ namespace Microsoft.AspNetCore.Testing
 
         public static async Task<string> GetStringAsync(Uri requestUri, bool validateCertificate = true)
         {
-            using (var stream = await GetStream(requestUri, validateCertificate).ConfigureAwait(false))
+            return await RetryRequest(async () =>
             {
-                using (var writer = new StreamWriter(stream, Encoding.ASCII, bufferSize: 1024, leaveOpen: true))
+                using (var stream = await GetStream(requestUri, validateCertificate).ConfigureAwait(false))
                 {
-                    await writer.WriteAsync($"GET {requestUri.PathAndQuery} HTTP/1.0\r\n").ConfigureAwait(false);
-                    await writer.WriteAsync($"Host: {GetHost(requestUri)}\r\n").ConfigureAwait(false);
-                    await writer.WriteAsync("\r\n").ConfigureAwait(false);
-                }
+                    using (var writer = new StreamWriter(stream, Encoding.ASCII, bufferSize: 1024, leaveOpen: true))
+                    {
+                        await writer.WriteAsync($"GET {requestUri.PathAndQuery} HTTP/1.0\r\n").ConfigureAwait(false);
+                        await writer.WriteAsync($"Host: {GetHost(requestUri)}\r\n").ConfigureAwait(false);
+                        await writer.WriteAsync("\r\n").ConfigureAwait(false);
+                    }
 
-                return await ReadResponse(stream).ConfigureAwait(false);
-            }
+                    return await ReadResponse(stream).ConfigureAwait(false);
+                }
+            });
         }
 
         internal static string GetHost(Uri requestUri)
@@ -62,21 +67,24 @@ namespace Microsoft.AspNetCore.Testing
 
         public static async Task<string> PostAsync(Uri requestUri, HttpContent content, bool validateCertificate = true)
         {
-            using (var stream = await GetStream(requestUri, validateCertificate))
+            return await RetryRequest(async () =>
             {
-                using (var writer = new StreamWriter(stream, Encoding.ASCII, bufferSize: 1024, leaveOpen: true))
+                using (var stream = await GetStream(requestUri, validateCertificate))
                 {
-                    await writer.WriteAsync($"POST {requestUri.PathAndQuery} HTTP/1.0\r\n").ConfigureAwait(false);
-                    await writer.WriteAsync($"Host: {requestUri.Authority}\r\n").ConfigureAwait(false);
-                    await writer.WriteAsync($"Content-Type: {content.Headers.ContentType}\r\n").ConfigureAwait(false);
-                    await writer.WriteAsync($"Content-Length: {content.Headers.ContentLength}\r\n").ConfigureAwait(false);
-                    await writer.WriteAsync("\r\n").ConfigureAwait(false);
+                    using (var writer = new StreamWriter(stream, Encoding.ASCII, bufferSize: 1024, leaveOpen: true))
+                    {
+                        await writer.WriteAsync($"POST {requestUri.PathAndQuery} HTTP/1.0\r\n").ConfigureAwait(false);
+                        await writer.WriteAsync($"Host: {requestUri.Authority}\r\n").ConfigureAwait(false);
+                        await writer.WriteAsync($"Content-Type: {content.Headers.ContentType}\r\n").ConfigureAwait(false);
+                        await writer.WriteAsync($"Content-Length: {content.Headers.ContentLength}\r\n").ConfigureAwait(false);
+                        await writer.WriteAsync("\r\n").ConfigureAwait(false);
+                    }
+
+                    await content.CopyToAsync(stream).ConfigureAwait(false);
+
+                    return await ReadResponse(stream).ConfigureAwait(false);
                 }
-
-                await content.CopyToAsync(stream).ConfigureAwait(false);
-
-                return await ReadResponse(stream).ConfigureAwait(false);
-            }
+            });
         }
 
         private static async Task<string> ReadResponse(Stream stream)
@@ -92,6 +100,33 @@ namespace Microsoft.AspNetCore.Testing
                 var body = response.Substring(response.IndexOf("\r\n\r\n") + 4);
                 return body;
             }
+        }
+
+        private static async Task<string> RetryRequest(Func<Task<string>> retryBlock)
+        {
+            var retryCount = 1;
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+            {
+                retryCount = 3;
+            }
+
+            for (var retry = 0; retry < retryCount; retry++)
+            {
+                try
+                {
+                    return await retryBlock().ConfigureAwait(false);
+                }
+                catch (InvalidDataException)
+                {
+                    if (retry == retryCount - 1)
+                    {
+                        throw;
+                    }
+                }
+            }
+
+            // This will never be hit.
+            throw new NotSupportedException();
         }
 
         private static HttpStatusCode GetStatus(string response)

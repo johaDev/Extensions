@@ -1,11 +1,14 @@
-// Copyright (c) .NET Foundation. All rights reserved.
-// Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
+// Licensed to the .NET Foundation under one or more agreements.
+// The .NET Foundation licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for more information.
 
 using System;
+using System.Threading;
+using System.Threading.Tasks;
 using Xunit.Abstractions;
 using Xunit.Sdk;
 
-namespace Microsoft.AspNetCore.Testing.xunit
+namespace Microsoft.AspNetCore.Testing
 {
     public class SkippedTestCase : XunitTestCase
     {
@@ -33,8 +36,11 @@ namespace Microsoft.AspNetCore.Testing.xunit
 
         public override void Deserialize(IXunitSerializationInfo data)
         {
-            base.Deserialize(data);
             _skipReason = data.GetValue<string>(nameof(_skipReason));
+
+            // We need to call base after reading our value, because Deserialize will call
+            // into GetSkipReason.
+            base.Deserialize(data);
         }
 
         public override void Serialize(IXunitSerializationInfo data)

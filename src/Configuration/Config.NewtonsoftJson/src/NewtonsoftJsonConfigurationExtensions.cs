@@ -1,5 +1,6 @@
-// Copyright (c) .NET Foundation. All rights reserved.
-// Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
+// Licensed to the .NET Foundation under one or more agreements.
+// The .NET Foundation licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for more information.
 
 using System;
 using System.IO;
@@ -91,5 +92,21 @@ namespace Microsoft.Extensions.Configuration
         /// <returns>The <see cref="IConfigurationBuilder"/>.</returns>
         public static IConfigurationBuilder AddNewtonsoftJsonFile(this IConfigurationBuilder builder, Action<NewtonsoftJsonConfigurationSource> configureSource)
             => builder.Add(configureSource);
+
+        /// <summary>
+        /// Adds a Newtonsoft JSON configuration source to <paramref name="builder"/>.
+        /// </summary>
+        /// <param name="builder">The <see cref="IConfigurationBuilder"/> to add to.</param>
+        /// <param name="stream">The <see cref="Stream"/> to read the json configuration data from.</param>
+        /// <returns>The <see cref="IConfigurationBuilder"/>.</returns>
+        public static IConfigurationBuilder AddNewtonsoftJsonStream(this IConfigurationBuilder builder, Stream stream)
+        {
+            if (builder == null)
+            {
+                throw new ArgumentNullException(nameof(builder));
+            }
+
+            return builder.Add<NewtonsoftJsonStreamConfigurationSource>(s => s.Stream = stream);
+        }
     }
 }
